@@ -93,6 +93,7 @@ use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -119,6 +120,123 @@ fn stdio_mcp(command: &str) -> McpServerConfig {
         oauth_resource: None,
         tools: HashMap::new(),
     }
+}
+
+fn test_shell_names() -> Vec<&'static str> {
+    let candidates: &[&str] = if cfg!(windows) {
+        &["cmd", "pwsh", "powershell"]
+    } else {
+        &["sh", "bash", "zsh"]
+    };
+
+    candidates
+        .iter()
+        .copied()
+        .filter(|name| crate::shell::get_shell_by_user_provided_path(Path::new(name)).is_ok())
+        .collect()
+}
+
+fn resolved_test_shell_path(shell_name: &str) -> PathBuf {
+    crate::shell::get_shell_by_user_provided_path(Path::new(shell_name))
+        .expect("test shell should resolve")
+        .shell_path
+}
+
+#[tokio::test]
+async fn shell_path_loads_from_config_toml() -> std::io::Result<()> {
+    let shell_name = test_shell_names()
+        .into_iter()
+        .next()
+        .expect("at least one test shell should resolve");
+    let cfg: ConfigToml = toml::from_str(&format!("shell_path = \"{shell_name}\""))
+        .expect("TOML deserialization should succeed");
+
+    let codex_home = TempDir::new()?;
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(
+        config.shell_path.as_deref(),
+        Some(resolved_test_shell_path(shell_name).as_path())
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn profile_shell_path_overrides_top_level_shell_path() -> std::io::Result<()> {
+    let shell_names = test_shell_names();
+    if shell_names.len() < 2 {
+        return Ok(());
+    }
+    let top_level_shell = shell_names[0];
+    let profile_shell = shell_names[1];
+    let cfg: ConfigToml = toml::from_str(&format!(
+        r#"
+shell_path = "{top_level_shell}"
+profile = "custom-shell"
+
+[profiles.custom-shell]
+shell_path = "{profile_shell}"
+"#
+    ))
+    .expect("TOML deserialization should succeed");
+
+    let codex_home = TempDir::new()?;
+    let config = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(
+        config.shell_path.as_deref(),
+        Some(resolved_test_shell_path(profile_shell).as_path())
+    );
+    Ok(())
+}
+
+#[test]
+fn env_shell_overrides_profile_and_top_level_shell_path() {
+    let shell_names = test_shell_names();
+    if shell_names.len() < 2 {
+        return;
+    }
+    let env_shell = shell_names[0];
+    let profile_shell = shell_names[1];
+
+    let resolved = resolve_shell_path(Some(env_shell), Some(profile_shell), Some(profile_shell))
+        .expect("env shell should resolve");
+
+    assert_eq!(
+        resolved.as_deref(),
+        Some(resolved_test_shell_path(env_shell).as_path())
+    );
+}
+
+#[tokio::test]
+async fn invalid_shell_path_fails_config_load() -> std::io::Result<()> {
+    let cfg = ConfigToml {
+        shell_path: Some("fish".to_string()),
+        ..Default::default()
+    };
+    let codex_home = TempDir::new()?;
+
+    let err = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(err.to_string().contains("is not a supported shell"));
+    Ok(())
 }
 
 fn http_mcp(url: &str) -> McpServerConfig {
@@ -7021,6 +7139,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
             codex_linux_sandbox_exe: None,
             main_execve_wrapper_exe: None,
             zsh_path: None,
+            shell_path: None,
             hide_agent_reasoning: false,
             show_raw_agent_reasoning: false,
             model_reasoning_effort: Some(ReasoningEffort::High),
@@ -7465,6 +7584,7 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         codex_linux_sandbox_exe: None,
         main_execve_wrapper_exe: None,
         zsh_path: None,
+        shell_path: None,
         hide_agent_reasoning: false,
         show_raw_agent_reasoning: false,
         model_reasoning_effort: None,
@@ -7623,6 +7743,7 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         codex_linux_sandbox_exe: None,
         main_execve_wrapper_exe: None,
         zsh_path: None,
+        shell_path: None,
         hide_agent_reasoning: false,
         show_raw_agent_reasoning: false,
         model_reasoning_effort: None,
@@ -7766,6 +7887,7 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         codex_linux_sandbox_exe: None,
         main_execve_wrapper_exe: None,
         zsh_path: None,
+        shell_path: None,
         hide_agent_reasoning: false,
         show_raw_agent_reasoning: false,
         model_reasoning_effort: Some(ReasoningEffort::High),

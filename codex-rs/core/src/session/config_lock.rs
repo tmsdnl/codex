@@ -135,6 +135,10 @@ fn save_config_resolved_fields(
     lock_config.include_apps_instructions = Some(config.include_apps_instructions);
     lock_config.include_environment_context = Some(config.include_environment_context);
     lock_config.background_terminal_max_timeout = Some(config.background_terminal_max_timeout);
+    lock_config.shell_path = config
+        .shell_path
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string());
 
     // Feature aliases and feature configs need to be written in their resolved
     // form; otherwise replay can drift when a legacy key maps to the same
@@ -209,11 +213,21 @@ where
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use std::path::Path;
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     #[tokio::test]
     async fn lock_contains_prompts_and_materializes_features() {
         let mut sc = crate::session::tests::make_session_configuration_for_tests().await;
+        let shell_path = PathBuf::from(if cfg!(windows) {
+            r"C:\Windows\System32\cmd.exe"
+        } else {
+            "/bin/bash"
+        });
+        let mut config = (*sc.original_config_do_not_use).clone();
+        config.shell_path = Some(Arc::<Path>::from(shell_path.clone()));
+        sc.original_config_do_not_use = Arc::new(config);
         sc.base_instructions = "resolved instructions".to_string();
         sc.developer_instructions = Some("resolved developer instructions".to_string());
         sc.compact_prompt = Some("resolved compact prompt".to_string());
@@ -225,6 +239,10 @@ mod tests {
         assert_eq!(lock.developer_instructions, sc.developer_instructions);
         assert_eq!(lock.compact_prompt, sc.compact_prompt);
         assert_eq!(lock.model, Some(sc.collaboration_mode.model().to_string()));
+        assert_eq!(
+            lock.shell_path,
+            Some(shell_path.to_string_lossy().to_string())
+        );
         assert_eq!(
             lock.model_reasoning_effort,
             sc.collaboration_mode.reasoning_effort()

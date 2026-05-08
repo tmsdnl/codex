@@ -673,6 +673,10 @@
           "description": "Optional explicit service tier request id for new turns (for example `priority` or `flex`; legacy `fast` also works).",
           "type": "string"
         },
+        "shell_path": {
+          "description": "Optional override for the default shell used by shell-based tools.\n\nSupports bare names or absolute paths for shells Codex already knows how to execute, such as `bash`, `zsh`, `sh`, `pwsh`, `powershell`, and `cmd`.",
+          "type": "string"
+        },
         "tools": {
           "$ref": "#/definitions/ToolsToml"
         },
@@ -4508,6 +4512,10 @@
         "inherit": null,
         "set": null
       }
+    },
+    "shell_path": {
+      "description": "Optional override for the default shell used by shell-based tools.\n\nSupports bare names or absolute paths for shells Codex already knows how to execute, such as `bash`, `zsh`, `sh`, `pwsh`, `powershell`, and `cmd`.",
+      "type": "string"
     },
     "show_raw_agent_reasoning": {
       "description": "When set to `true`, `AgentReasoningRawContentEvent` events will be shown in the UI/output. Defaults to `false`.",

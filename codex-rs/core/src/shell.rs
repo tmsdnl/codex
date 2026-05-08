@@ -2,6 +2,8 @@ use crate::shell_detect::detect_shell_type;
 use crate::shell_snapshot::ShellSnapshot;
 use serde::Deserialize;
 use serde::Serialize;
+use std::path::Component;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -173,6 +175,13 @@ fn get_shell_path(
         return provided_path.cloned();
     }
 
+    if let Some(provided_path) = provided_path
+        && is_bare_shell_name(provided_path)
+        && let Ok(path) = which::which(provided_path)
+    {
+        return Some(path);
+    }
+
     // Check if the shell we are trying to load is user's default shell
     // if just use it
     let default_shell_path = get_user_shell_path();
@@ -297,6 +306,48 @@ pub fn get_shell_by_model_provided_path(shell_path: &PathBuf) -> Shell {
     detect_shell_type(shell_path)
         .and_then(|shell_type| get_shell(shell_type, Some(shell_path)))
         .unwrap_or(ultimate_fallback_shell())
+}
+
+pub fn get_shell_by_user_provided_path(shell_path: &Path) -> Result<Shell, String> {
+    if shell_path.as_os_str().is_empty() {
+        return Err("shell_path cannot be empty".to_string());
+    }
+
+    if !shell_path.is_absolute() && !is_bare_shell_name(shell_path) {
+        return Err(format!(
+            "shell_path `{}` must be a supported shell name or an absolute path",
+            shell_path.display()
+        ));
+    }
+
+    let shell_path = shell_path.to_path_buf();
+    let shell_type = detect_shell_type(&shell_path).ok_or_else(|| {
+        format!(
+            "shell_path `{}` is not a supported shell; supported shells are zsh, bash, sh, pwsh, powershell, and cmd",
+            shell_path.display()
+        )
+    })?;
+
+    if shell_path.is_absolute() && file_exists(&shell_path).is_none() {
+        return Err(format!(
+            "shell_path `{}` does not exist or is not a file",
+            shell_path.display()
+        ));
+    }
+
+    get_shell(shell_type, Some(&shell_path)).ok_or_else(|| {
+        format!(
+            "shell_path `{}` could not be resolved to a usable shell executable",
+            shell_path.display()
+        )
+    })
+}
+
+fn is_bare_shell_name(path: &Path) -> bool {
+    matches!(
+        path.components().collect::<Vec<_>>().as_slice(),
+        [Component::Normal(_)]
+    )
 }
 
 pub fn get_shell(shell_type: ShellType, path: Option<&PathBuf>) -> Option<Shell> {

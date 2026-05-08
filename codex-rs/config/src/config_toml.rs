@@ -130,6 +130,12 @@ pub struct ConfigToml {
     #[serde(default = "default_allow_login_shell")]
     pub allow_login_shell: Option<bool>,
 
+    /// Optional override for the default shell used by shell-based tools.
+    ///
+    /// Supports bare names or absolute paths for shells Codex already knows how
+    /// to execute, such as `bash`, `zsh`, `sh`, `pwsh`, `powershell`, and `cmd`.
+    pub shell_path: Option<String>,
+
     /// Sandbox mode to use.
     pub sandbox_mode: Option<SandboxMode>,
 
@@ -881,7 +887,7 @@ fn project_config_for_lookup_key(
         .iter()
         .filter(|(key, _)| normalize_project_lookup_key((*key).clone()) == lookup_key)
         .collect();
-    normalized_matches.sort_by(|(left, _), (right, _)| left.cmp(right));
+    normalized_matches.sort_by_key(|(left, _)| *left);
     normalized_matches
         .first()
         .map(|(_, project_config)| (**project_config).clone())

@@ -42,6 +42,11 @@ pub struct ConfigProfile {
     pub chatgpt_base_url: Option<String>,
     /// Optional path to a file containing model instructions.
     pub model_instructions_file: Option<AbsolutePathBuf>,
+    /// Optional override for the default shell used by shell-based tools.
+    ///
+    /// Supports bare names or absolute paths for shells Codex already knows how
+    /// to execute, such as `bash`, `zsh`, `sh`, `pwsh`, `powershell`, and `cmd`.
+    pub shell_path: Option<String>,
     /// Deprecated: ignored.
     #[schemars(skip)]
     pub js_repl_node_path: Option<AbsolutePathBuf>,

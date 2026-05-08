@@ -674,27 +674,8 @@ impl Session {
                 config.active_profile.clone(),
             );
 
-            let use_zsh_fork_shell = config.features.enabled(Feature::ShellZshFork);
-            let mut default_shell = if let Some(user_shell_override) =
-                session_configuration.user_shell_override.clone()
-            {
-                user_shell_override
-            } else if use_zsh_fork_shell {
-                let zsh_path = config.zsh_path.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "zsh fork feature enabled, but `zsh_path` is not configured; set `zsh_path` in config.toml"
-                    )
-                })?;
-                let zsh_path = zsh_path.to_path_buf();
-                shell::get_shell(shell::ShellType::Zsh, Some(&zsh_path)).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "zsh fork feature enabled, but zsh_path `{}` is not usable; set `zsh_path` to a valid zsh executable",
-                        zsh_path.display()
-                    )
-                })?
-            } else {
-                shell::default_user_shell()
-            };
+            let mut default_shell =
+                resolve_session_shell(&config, session_configuration.user_shell_override.clone())?;
             // Create the mutable state for the Session.
             let shell_snapshot_tx = if config.features.enabled(Feature::ShellSnapshot) {
                 if let Some(snapshot) = session_configuration.inherited_shell_snapshot.clone() {
@@ -1063,4 +1044,39 @@ impl Session {
             }
         }
     }
+}
+
+pub(crate) fn resolve_session_shell(
+    config: &Config,
+    user_shell_override: Option<shell::Shell>,
+) -> anyhow::Result<shell::Shell> {
+    if let Some(user_shell_override) = user_shell_override {
+        return Ok(user_shell_override);
+    }
+
+    if config.features.enabled(Feature::ShellZshFork) {
+        let zsh_path = config.zsh_path.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "zsh fork feature enabled, but `zsh_path` is not configured; set `zsh_path` in config.toml"
+            )
+        })?;
+        let zsh_path = zsh_path.to_path_buf();
+        return shell::get_shell(shell::ShellType::Zsh, Some(&zsh_path)).ok_or_else(|| {
+            anyhow::anyhow!(
+                "zsh fork feature enabled, but zsh_path `{}` is not usable; set `zsh_path` to a valid zsh executable",
+                zsh_path.display()
+            )
+        });
+    }
+
+    if let Some(shell_path) = config.shell_path.as_ref() {
+        return shell::get_shell_by_user_provided_path(shell_path).map_err(|message| {
+            anyhow::anyhow!(
+                "configured shell_path `{}` is not usable: {message}",
+                shell_path.display()
+            )
+        });
+    }
+
+    Ok(shell::default_user_shell())
 }

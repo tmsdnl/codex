@@ -143,6 +143,8 @@ pub use network_proxy_spec::NetworkProxySpec;
 pub use network_proxy_spec::StartedNetworkProxy;
 pub(crate) use permissions::resolve_permission_profile;
 
+pub const CODEX_SHELL_ENV_VAR: &str = "CODEX_SHELL";
+
 const DEFAULT_IGNORE_LARGE_UNTRACKED_DIRS: i64 = 200;
 const DEFAULT_IGNORE_LARGE_UNTRACKED_FILES: i64 = 10 * 1024 * 1024;
 
@@ -678,6 +680,9 @@ pub struct Config {
 
     /// Optional absolute path to patched zsh used by zsh-exec-bridge-backed shell execution.
     pub zsh_path: Option<PathBuf>,
+
+    /// Optional resolved shell executable override used by shell-based tools.
+    pub shell_path: Option<Arc<Path>>,
 
     /// Value to use for `reasoning.effort` when making a request using the
     /// Responses API.
@@ -1944,6 +1949,24 @@ fn resolve_web_search_config(
     }
 }
 
+pub(crate) fn resolve_shell_path(
+    env_shell: Option<&str>,
+    profile_shell_path: Option<&str>,
+    config_shell_path: Option<&str>,
+) -> std::io::Result<Option<Arc<Path>>> {
+    let Some(shell_path) = env_shell
+        .filter(|value| !value.trim().is_empty())
+        .or(profile_shell_path)
+        .or(config_shell_path)
+    else {
+        return Ok(None);
+    };
+
+    crate::shell::get_shell_by_user_provided_path(Path::new(shell_path))
+        .map(|shell| Some(Arc::<Path>::from(shell.shell_path)))
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))
+}
+
 fn resolve_multi_agent_v2_config(
     config_toml: &ConfigToml,
     config_profile: &ConfigProfile,
@@ -2823,6 +2846,11 @@ impl Config {
         let zsh_path = zsh_path_override
             .or(config_profile.zsh_path.map(Into::into))
             .or(cfg.zsh_path.map(Into::into));
+        let shell_path = resolve_shell_path(
+            std::env::var(CODEX_SHELL_ENV_VAR).ok().as_deref(),
+            config_profile.shell_path.as_deref(),
+            cfg.shell_path.as_deref(),
+        )?;
 
         let review_model = override_review_model.or(cfg.review_model);
 
@@ -2940,6 +2968,7 @@ impl Config {
         };
         let helper_readable_roots = get_readable_roots_required_for_codex_runtime(
             &codex_home,
+            shell_path.as_deref(),
             zsh_path.as_ref(),
             main_execve_wrapper_exe.as_ref(),
         );
@@ -3071,6 +3100,7 @@ impl Config {
             codex_linux_sandbox_exe,
             main_execve_wrapper_exe,
             zsh_path,
+            shell_path,
 
             hide_agent_reasoning: cfg.hide_agent_reasoning.unwrap_or(false),
             show_raw_agent_reasoning: cfg

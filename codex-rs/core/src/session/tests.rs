@@ -58,6 +58,7 @@ use crate::goals::ExternalGoalSet;
 use crate::goals::GoalRuntimeEvent;
 use crate::goals::SetGoalRequest;
 use crate::rollout::recorder::RolloutRecorder;
+use crate::session::session::resolve_session_shell;
 use crate::state::ActiveTurn;
 use crate::state::TaskKind;
 use crate::tasks::SessionTask;
@@ -2989,6 +2990,49 @@ async fn build_test_config(codex_home: &Path) -> Config {
         .build()
         .await
         .expect("load default test config")
+}
+
+fn write_fake_shell(temp_dir: &Path, shell_name: &str) -> PathBuf {
+    let shell_path = temp_dir.join(shell_name);
+    std::fs::write(&shell_path, "").expect("write fake shell");
+    shell_path
+}
+
+#[tokio::test]
+async fn resolve_session_shell_uses_configured_shell_path() {
+    let codex_home = tempfile::tempdir().expect("create temp dir");
+    let mut config = build_test_config(codex_home.path()).await;
+    let shell_path = write_fake_shell(
+        codex_home.path(),
+        if cfg!(windows) { "cmd.exe" } else { "bash" },
+    );
+    config.shell_path = Some(Arc::<Path>::from(shell_path.clone()));
+
+    let shell = resolve_session_shell(&config, /*user_shell_override*/ None).unwrap();
+
+    assert_eq!(shell.shell_path, shell_path);
+}
+
+#[tokio::test]
+async fn resolve_session_shell_prefers_zsh_fork_over_configured_shell_path() {
+    let codex_home = tempfile::tempdir().expect("create temp dir");
+    let mut config = build_test_config(codex_home.path()).await;
+    let shell_path = write_fake_shell(
+        codex_home.path(),
+        if cfg!(windows) { "cmd.exe" } else { "bash" },
+    );
+    let zsh_path = write_fake_shell(codex_home.path(), "zsh");
+    config.shell_path = Some(Arc::<Path>::from(shell_path));
+    config.zsh_path = Some(zsh_path.clone());
+    config
+        .features
+        .enable(Feature::ShellZshFork)
+        .expect("test config should allow shell_zsh_fork");
+
+    let shell = resolve_session_shell(&config, /*user_shell_override*/ None).unwrap();
+
+    assert_eq!(shell.shell_path, zsh_path);
+    assert_eq!(shell.name(), "zsh");
 }
 
 fn session_telemetry(

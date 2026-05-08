@@ -271,10 +271,12 @@ fn reject_unknown_builtin_permission_profile(profile_name: &str) -> io::Result<(
 /// `FileSystemSandboxPolicy` for a thread.
 pub(crate) fn get_readable_roots_required_for_codex_runtime(
     codex_home: &Path,
+    shell_path: Option<&Path>,
     zsh_path: Option<&PathBuf>,
     main_execve_wrapper_exe: Option<&PathBuf>,
 ) -> Vec<AbsolutePathBuf> {
     let arg0_root = AbsolutePathBuf::from_absolute_path(codex_home.join("tmp").join("arg0")).ok();
+    let shell_path = shell_path.and_then(|path| AbsolutePathBuf::from_absolute_path(path).ok());
     let zsh_path = zsh_path.and_then(|path| AbsolutePathBuf::from_absolute_path(path).ok());
     let execve_wrapper_root = main_execve_wrapper_exe.and_then(|path| {
         let path = AbsolutePathBuf::from_absolute_path(path).ok()?;
@@ -288,6 +290,9 @@ pub(crate) fn get_readable_roots_required_for_codex_runtime(
     });
 
     let mut readable_roots = Vec::new();
+    if let Some(shell_path) = shell_path {
+        readable_roots.push(shell_path);
+    }
     if let Some(zsh_path) = zsh_path {
         readable_roots.push(zsh_path);
     }

@@ -47,13 +47,19 @@ async fn restricted_read_implicitly_allows_helper_executables() -> std::io::Resu
     let temp_dir = TempDir::new()?;
     let cwd = temp_dir.path().join("workspace");
     let codex_home = temp_dir.path().join(".codex");
+    let shell_path =
+        temp_dir
+            .path()
+            .join("runtime")
+            .join(if cfg!(windows) { "cmd.exe" } else { "bash" });
     let zsh_path = temp_dir.path().join("runtime").join("zsh");
     let arg0_root = codex_home.join("tmp").join("arg0");
     let allowed_arg0_dir = arg0_root.join("codex-arg0-session");
     let sibling_arg0_dir = arg0_root.join("codex-arg0-other-session");
     let execve_wrapper = allowed_arg0_dir.join("codex-execve-wrapper");
     std::fs::create_dir_all(&cwd)?;
-    std::fs::create_dir_all(zsh_path.parent().expect("zsh path should have parent"))?;
+    std::fs::create_dir_all(shell_path.parent().expect("shell path should have parent"))?;
+    std::fs::write(&shell_path, "")?;
     std::fs::create_dir_all(&allowed_arg0_dir)?;
     std::fs::create_dir_all(&sibling_arg0_dir)?;
     std::fs::write(&zsh_path, "")?;
@@ -61,6 +67,7 @@ async fn restricted_read_implicitly_allows_helper_executables() -> std::io::Resu
 
     let config = Config::load_from_base_config_with_overrides(
         ConfigToml {
+            shell_path: Some(shell_path.to_string_lossy().to_string()),
             default_permissions: Some("workspace".to_string()),
             permissions: Some(PermissionsToml {
                 entries: BTreeMap::from([(
@@ -86,11 +93,16 @@ async fn restricted_read_implicitly_allows_helper_executables() -> std::io::Resu
     )
     .await?;
 
+    let expected_shell = AbsolutePathBuf::try_from(shell_path)?;
     let expected_zsh = AbsolutePathBuf::try_from(zsh_path)?;
     let expected_allowed_arg0_dir = AbsolutePathBuf::try_from(allowed_arg0_dir)?;
     let expected_sibling_arg0_dir = AbsolutePathBuf::try_from(sibling_arg0_dir)?;
     let policy = config.permissions.file_system_sandbox_policy();
 
+    assert!(
+        policy.can_read_path_with_cwd(expected_shell.as_path(), &cwd),
+        "expected configured shell path to be readable, policy: {policy:?}"
+    );
     assert!(
         policy.can_read_path_with_cwd(expected_zsh.as_path(), &cwd),
         "expected zsh helper path to be readable, policy: {policy:?}"

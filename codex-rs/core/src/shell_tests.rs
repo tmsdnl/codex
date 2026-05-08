@@ -1,6 +1,8 @@
 use super::*;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use tempfile::TempDir;
 
 #[test]
 #[cfg(target_os = "macos")]
@@ -40,6 +42,54 @@ fn detects_sh() {
     assert!(
         shell_path.file_name().and_then(|name| name.to_str()) == Some("sh"),
         "shell path: {shell_path:?}",
+    );
+}
+
+#[test]
+fn user_provided_shell_supports_bare_names() {
+    let shell_name = if cfg!(windows) { "cmd" } else { "sh" };
+    let shell = get_shell_by_user_provided_path(Path::new(shell_name)).unwrap();
+
+    assert_eq!(shell.name(), shell_name);
+}
+
+#[test]
+fn user_provided_shell_supports_absolute_paths() {
+    let temp_dir = TempDir::new().unwrap();
+    let shell_name = if cfg!(windows) { "cmd.exe" } else { "bash" };
+    let shell_path = temp_dir.path().join(shell_name);
+    std::fs::write(&shell_path, "").unwrap();
+
+    let shell = get_shell_by_user_provided_path(&shell_path).unwrap();
+
+    assert_eq!(shell.shell_path, shell_path);
+}
+
+#[test]
+fn user_provided_shell_rejects_unsupported_shells() {
+    let err = get_shell_by_user_provided_path(Path::new("fish")).unwrap_err();
+
+    assert!(err.contains("is not a supported shell"), "{err}");
+}
+
+#[test]
+fn user_provided_shell_rejects_missing_absolute_paths() {
+    let temp_dir = TempDir::new().unwrap();
+    let shell_path = temp_dir
+        .path()
+        .join(if cfg!(windows) { "cmd.exe" } else { "bash" });
+    let err = get_shell_by_user_provided_path(&shell_path).unwrap_err();
+
+    assert!(err.contains("does not exist or is not a file"), "{err}");
+}
+
+#[test]
+fn user_provided_shell_rejects_relative_paths_with_separators() {
+    let err = get_shell_by_user_provided_path(Path::new("bin/bash")).unwrap_err();
+
+    assert!(
+        err.contains("must be a supported shell name or an absolute path"),
+        "{err}"
     );
 }
 
